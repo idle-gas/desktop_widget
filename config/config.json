@@ -1,0 +1,14 @@
+{
+  "high_threshold": 1500.0,
+  "low_threshold": 900.0,
+  "window_position": {
+    "x": 100,
+    "y": 100
+  },
+  "window_size": [
+    300,
+    180
+  ],
+  "update_interval": 5,
+  "notifications_enabled": true
+}
