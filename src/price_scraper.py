@@ -61,7 +61,8 @@ class GoldPriceScraper:
         self.history_cache: Dict[str, List[Tuple[int, float]]] = {}  # 日期 -> 历史数据
         self.history_last_fetch_time = 0
         self.history_cache_duration = 60
-        self.use_history_api = True  # 是否使用历史API的开关
+        # self.use_history_api = True  # 是否使用历史API的开关
+        self.use_history_api = False  # 是否使用历史API的开关
 
     def parse_jsonp_response(self, jsonp_text: str) -> Optional[Dict]:
         """解析JSONP格式响应
@@ -480,6 +481,13 @@ class GoldPriceScraper:
             # 在图表区域显示提示信息（通过widget.py处理）
             pass
         return sorted(self.price_history, key=lambda x: x[0])
+
+    def set_history_mode(self, use_api: bool):
+        """切换历史数据模式，并清除缓存以立即生效"""
+        self.use_history_api = use_api
+        self.history_cache.clear()
+        self.history_last_fetch_time = 0
+        print(f"历史数据模式切换为: {'历史API' if use_api else '本地历史'}")
 
     def get_last_known_price(self) -> Optional[float]:
         """获取最后已知的价格（用于网络异常时）"""

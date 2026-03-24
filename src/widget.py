@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QMenu, QApplication
+    QWidget, QMenu, QApplication, QPushButton
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QTimer, QRect, pyqtSignal
@@ -69,8 +69,8 @@ class GoldPriceWidget(QWidget):
         # 设置透明背景
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        # 设置窗口大小（根据设计文档：300x180像素）
-        self.setFixedSize(300, 180)
+        # 设置窗口大小（根据设计文档：300x204像素，含工具栏24px）
+        self.setFixedSize(300, 204)
 
         # 设置窗口位置（如果有保存的位置）
         if self.config.window_position:
@@ -78,6 +78,57 @@ class GoldPriceWidget(QWidget):
 
         # 设置窗口标题
         self.setWindowTitle("黄金价格监控")
+
+        # 创建工具栏按钮
+        self._setup_toolbar_buttons()
+
+    def _setup_toolbar_buttons(self):
+        """创建顶部工具栏按钮"""
+        base_style = """
+            QPushButton {
+                background-color: rgba(60, 60, 60, 200);
+                color: #dddddd;
+                border: 1px solid rgba(100, 100, 100, 180);
+                border-radius: 3px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: rgba(85, 85, 85, 220);
+            }
+            QPushButton:pressed {
+                background-color: rgba(40, 40, 40, 240);
+            }
+        """
+        close_style = base_style.replace(
+            "rgba(60, 60, 60, 200)", "rgba(160, 40, 40, 200)"
+        ).replace(
+            "rgba(85, 85, 85, 220)", "rgba(200, 60, 60, 220)"
+        )
+
+        # 数据源切换按钮（当前模式为本地历史）
+        self.toggle_btn = QPushButton("本地历史", self)
+        self.toggle_btn.setGeometry(4, 2, 186, 20)
+        self.toggle_btn.setStyleSheet(base_style)
+        self.toggle_btn.clicked.connect(self.toggle_data_source)
+
+        # 设置按钮
+        self.settings_btn = QPushButton("⚙", self)
+        self.settings_btn.setGeometry(194, 2, 48, 20)
+        self.settings_btn.setStyleSheet(base_style)
+        self.settings_btn.clicked.connect(self.open_settings)
+
+        # 关闭按钮
+        self.close_btn = QPushButton("✕", self)
+        self.close_btn.setGeometry(246, 2, 50, 20)
+        self.close_btn.setStyleSheet(close_style)
+        self.close_btn.clicked.connect(QApplication.instance().quit)
+
+    def toggle_data_source(self):
+        """切换历史数据来源（本地历史 / 历史API）"""
+        new_mode = not self.scraper.use_history_api
+        self.scraper.set_history_mode(new_mode)
+        self.toggle_btn.setText("当天走势" if new_mode else "实时走势")
+        self.fetch_price()
 
     def setup_timer(self):
         """设置定时器"""
@@ -210,6 +261,10 @@ class GoldPriceWidget(QWidget):
         # 深灰色半透明背景（RGBA: 30, 30, 30, 220）
         painter.fillRect(self.rect(), QColor(30, 30, 30, 220))
 
+        # 工具栏底部分隔线
+        painter.setPen(QPen(QColor(80, 80, 80, 200), 1))
+        painter.drawLine(0, 24, 300, 24)
+
     def draw_price_info(self, painter: QPainter):
         """绘制价格信息区域（顶部50像素）"""
         price_data = self.current_price_data
@@ -239,19 +294,19 @@ class GoldPriceWidget(QWidget):
         painter.setFont(price_font)
         painter.setPen(price_color)
         price_text = f"{current_price:.2f}"
-        price_rect = QRect(10, 10, 280, 30)
+        price_rect = QRect(10, 34, 280, 30)
         painter.drawText(price_rect, Qt.AlignmentFlag.AlignLeft, price_text)
 
         # 绘制单位
         painter.setFont(time_font)
         painter.setPen(QColor(200, 200, 200))
-        unit_rect = QRect(10, 40, 280, 15)
+        unit_rect = QRect(10, 64, 280, 15)
         painter.drawText(unit_rect, Qt.AlignmentFlag.AlignLeft, unit)
 
         # 绘制涨跌信息
         painter.setFont(change_font)
         change_text = f"{change_amount:+.2f} ({change_percent:+.2f}%)"
-        change_rect = QRect(10, 25, 280, 30)
+        change_rect = QRect(10, 49, 280, 30)
         painter.drawText(change_rect, Qt.AlignmentFlag.AlignRight, change_text)
 
         # 绘制更新时间
@@ -259,13 +314,13 @@ class GoldPriceWidget(QWidget):
             update_time = datetime.fromtimestamp(self.last_update_time).strftime("%H:%M:%S")
             painter.setFont(time_font)
             painter.setPen(QColor(150, 150, 150))
-            time_rect = QRect(10, 55, 280, 15)
+            time_rect = QRect(10, 79, 280, 15)
             painter.drawText(time_rect, Qt.AlignmentFlag.AlignRight, f"更新: {update_time}")
 
     def draw_time_chart(self, painter: QPainter):
         """绘制分时走势图区域（底部90像素）"""
-        # 图表区域：距顶部60像素，高度90像素
-        chart_rect = QRect(10, 70, 280, 100)
+        # 图表区域：距顶部94像素（24工具栏+70价格区），高度100像素
+        chart_rect = QRect(10, 94, 280, 100)
 
         # 绘制图表背景
         painter.fillRect(chart_rect, QColor(40, 40, 40, 150))

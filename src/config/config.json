@@ -1,13 +1,13 @@
 {
   "high_threshold": 988.0,
-  "low_threshold": 985.0,
+  "low_threshold": 940.0,
   "window_position": {
-    "x": 2135,
-    "y": 548
+    "x": 2101,
+    "y": 307
   },
   "window_size": [
     300,
-    180
+    204
   ],
   "update_interval": 5,
   "notifications_enabled": true
