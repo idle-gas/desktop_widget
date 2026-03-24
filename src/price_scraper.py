@@ -6,6 +6,7 @@
 import json
 import time
 import requests
+from datetime import datetime, time as dt_time
 from typing import Optional, List, Tuple, Dict
 from dataclasses import dataclass
 
@@ -55,25 +56,55 @@ class GoldPriceScraper:
             'Connection': 'keep-alive',
         }
 
+        # 历史API配置
+        self.history_api_url = "https://api.jijinhao.com/sQuoteCenter/history.htm?code=JO_92233&isCalc=true&style=1&pageSize=300&_="
+        self.history_cache: Dict[str, List[Tuple[int, float]]] = {}  # 日期 -> 历史数据
+        self.history_last_fetch_time = 0
+        self.history_cache_duration = 60
+        self.use_history_api = True  # 是否使用历史API的开关
+
     def parse_jsonp_response(self, jsonp_text: str) -> Optional[Dict]:
         """解析JSONP格式响应
         var quote_json = {"flag":true,"JO_92233":{"code":"JO_92233","time":1774269057000,"q64":4642.304,"q193":1.0,"q1":995.83997,"q2":996.72107,"q3":1005.7867,"q4":908.88727,"q5":971.7576,"q6":972.1125,"q70":-24.96344,"q7":0.0,"q8":0.0,"q9":0.0,"q10":0.0,"q11":0.0,"q12":0.0,"q13":0.0,"q14":0.0,"q15":0.0,"q16":0.0,"q80":-2.5045562,"q17":0.0,"q18":0.0,"q19":0.0,"q20":0.0,"q21":0.0,"q22":0.0,"q23":0.0,"q24":0.0,"q60":69746.0,"q61":0.0,"q62":0.0,"q63":971.7576,"unit":"元/克","showName":"现货黄金","showCode":"XAU","digits":2,"status":100},"errorCode":[]}
         """
         try:
-            # JSONP格式通常是: var quote_json = {...};
-            # 或者直接是 {...}
-            if 'var quote_json = ' in jsonp_text:
-                # 提取JSON部分
-                start = jsonp_text.find('var quote_json = ') + len('var quote_json = ')
-                # end = jsonp_text.rfind(';')
-                json_text = jsonp_text[start:].strip()
-            elif jsonp_text.strip().startswith('{'):
-                # 直接是JSON格式
-                json_text = jsonp_text.strip()
+            # JSONP格式可能是:
+            # 1. var variable_name = {...};
+            # 2. callback_name({...});
+            # 3. 直接是JSON {...}
+
+            text = jsonp_text.strip()
+
+            # 如果是直接JSON格式
+            if text.startswith('{') and text.endswith('}'):
+                json_text = text
                 if json_text.endswith(';'):
                     json_text = json_text[:-1]
+            # 检查是否是 var something = 格式
+            elif text.startswith('var '):
+                # 查找第一个 '=' 符号
+                equals_pos = text.find('=')
+                if equals_pos > 0:
+                    # 提取等号后的部分
+                    json_text = text[equals_pos + 1:].strip()
+                    # 移除末尾的分号（如果有）
+                    if json_text.endswith(';'):
+                        json_text = json_text[:-1].strip()
+                else:
+                    print(f"无效的var格式，未找到'=': {text[:100]}...")
+                    return None
+            # 检查是否是 callback({...}) 格式
+            elif '(' in text and ')' in text:
+                # 查找第一个 '(' 和最后一个 ')'
+                start = text.find('(') + 1
+                end = text.rfind(')')
+                if start < end:
+                    json_text = text[start:end].strip()
+                else:
+                    print(f"无效的回调格式: {text[:100]}...")
+                    return None
             else:
-                print(f"未知的响应格式: {jsonp_text[:100]}...")
+                print(f"未知的响应格式: {text[:100]}...")
                 return None
 
             # 解析JSON
@@ -224,9 +255,230 @@ class GoldPriceScraper:
 
         print(f"历史记录更新: 当前有 {len(self.price_history)} 个数据点，最新价格: {price}")
 
+    def _call_history_api(self) -> Optional[List[Tuple[int, float]]]:
+        """调用历史API并解析响应"""
+        try:
+            current_time = int(time.time() * 1000)
+            url = f"{self.history_api_url}{current_time}"
+
+            print(f"调用历史API: {url}")
+            response = requests.get(
+                url,
+                headers=self.headers,
+                timeout=10
+            )
+            response.raise_for_status()
+
+            # 解析历史API响应
+            return self._parse_history_response(response.text)
+
+        except Exception as e:
+            print(f"调用历史API失败: {e}")
+            return None
+
+    def _parse_history_response(self, jsonp_text: str) -> Optional[List[Tuple[int, float]]]:
+        """解析历史API响应
+
+        注意：需要先测试API的实际响应格式
+        假设格式可能是: {"data": [[timestamp, price, volume], ...]}
+        实际格式需要根据测试结果调整
+        """
+        try:
+            # 使用现有的JSONP解析方法
+            data = self.parse_jsonp_response(jsonp_text)
+            if not data:
+                print("历史API响应解析失败：JSONP解析返回None")
+                return None
+
+            # 调试：打印数据结构的键，帮助了解实际格式
+            print(f"历史API响应键: {list(data.keys())}")
+
+            # 根据测试结果，历史API返回格式: {"data":[{"date":..., "open":..., "high":..., "low":..., "close":...}, ...]}
+            # 或者可能是其他格式，我们需要灵活处理
+
+            history_list = None
+            result = []
+
+            # 尝试不同的数据提取逻辑
+            # 情况1: 数据在"data"键中，且是对象列表
+            if 'data' in data and isinstance(data['data'], list):
+                history_list = data['data']
+                print(f"从'data'键提取历史数据，共{len(history_list)}条")
+
+                # 处理对象列表格式: [{"date":..., "open":..., "close":...}, ...]
+                for item in history_list:
+                    if isinstance(item, dict):
+                        # 尝试不同的字段名
+                        timestamp = item.get('date') or item.get('time') or item.get('timestamp')
+                        # 尝试不同的价格字段：收盘价、开盘价、最新价等
+                        price = item.get('close') or item.get('price') or item.get('last') or item.get('current_price')
+
+                        if timestamp is not None and price is not None:
+                            try:
+                                ts = int(timestamp)
+                                pr = float(price)
+                                result.append((ts, pr))
+                            except (ValueError, TypeError) as e:
+                                print(f"数据转换错误: timestamp={timestamp}, price={price}, error={e}")
+                        else:
+                            # 如果找不到标准字段，尝试其他可能的结构
+                            print(f"对象缺少必要字段: {item}")
+                    elif isinstance(item, list) and len(item) >= 2:
+                        # 处理二维列表格式: [[timestamp, price], ...]
+                        timestamp = item[0]
+                        price = item[1]
+                        try:
+                            ts = int(timestamp)
+                            pr = float(price)
+                            result.append((ts, pr))
+                        except (ValueError, TypeError) as e:
+                            print(f"列表数据转换错误: {item}, error={e}")
+                    else:
+                        print(f"未知的数据格式: {type(item)} - {item}")
+
+            # 情况2: 数据在根级别是列表
+            elif isinstance(data, list):
+                history_list = data
+                print(f"根级别是历史数据列表，共{len(history_list)}条")
+
+                for item in history_list:
+                    if isinstance(item, dict):
+                        timestamp = item.get('date') or item.get('time') or item.get('timestamp')
+                        price = item.get('close') or item.get('price') or item.get('last')
+                        if timestamp is not None and price is not None:
+                            try:
+                                result.append((int(timestamp), float(price)))
+                            except (ValueError, TypeError):
+                                pass
+                    elif isinstance(item, list) and len(item) >= 2:
+                        try:
+                            result.append((int(item[0]), float(item[1])))
+                        except (ValueError, TypeError):
+                            pass
+
+            # 情况3: 数据在其他键中
+            else:
+                # 尝试查找包含历史数据的列表
+                for key, value in data.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        history_list = value
+                        print(f"从'{key}'键提取历史数据，共{len(history_list)}条")
+
+                        # 处理列表中的元素
+                        for item in history_list:
+                            if isinstance(item, dict):
+                                timestamp = item.get('date') or item.get('time')
+                                price = item.get('close') or item.get('price')
+                                if timestamp is not None and price is not None:
+                                    try:
+                                        result.append((int(timestamp), float(price)))
+                                    except (ValueError, TypeError):
+                                        pass
+                            elif isinstance(item, list) and len(item) >= 2:
+                                try:
+                                    result.append((int(item[0]), float(item[1])))
+                                except (ValueError, TypeError):
+                                    pass
+                        break
+                else:
+                    print(f"未找到历史数据列表，可用键: {list(data.keys())}")
+                    print(f"数据样本: {str(data)[:200]}...")
+                    return None
+
+            print(f"成功解析历史数据: {len(result)} 个数据点")
+            return result
+
+        except Exception as e:
+            print(f"解析历史API响应时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _filter_today_data(self, historical_data: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
+        """过滤出当天数据"""
+        if not historical_data:
+            return []
+
+        today = datetime.now().date()
+        # 当天开始时间戳（毫秒）
+        today_start = int(datetime.combine(today, dt_time.min).timestamp() * 1000)
+        # 当天结束时间戳（毫秒）
+        today_end = int(datetime.combine(today, dt_time.max).timestamp() * 1000)
+
+        filtered_data = [(ts, price) for ts, price in historical_data
+                        if today_start <= ts <= today_end]
+
+        print(f"当天数据过滤: 原始{len(historical_data)}条 -> 当天{len(filtered_data)}条")
+        return filtered_data
+
+    def _is_history_cache_valid(self) -> bool:
+        """检查历史缓存是否有效"""
+        current_time = time.time()
+        if current_time - self.history_last_fetch_time < self.history_cache_duration:
+            return True
+        return False
+
+    def _get_cached_history_data(self) -> Optional[List[Tuple[int, float]]]:
+        """获取缓存的当天历史数据"""
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        return self.history_cache.get(today_str)
+
+    def _update_history_cache(self, data: List[Tuple[int, float]]):
+        """更新历史缓存"""
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        self.history_cache[today_str] = data
+        self.history_last_fetch_time = time.time()
+
+        # 清理旧缓存（只保留最近3天的数据）
+        if len(self.history_cache) > 3:
+            oldest_key = min(self.history_cache.keys())
+            del self.history_cache[oldest_key]
+            print(f"清理历史缓存: 移除{oldest_key}")
+
+        print(f"历史缓存更新: {today_str} - {len(data)} 个数据点")
+
+    def fetch_historical_data(self) -> Optional[List[Tuple[int, float]]]:
+        """获取历史API数据，过滤当天数据"""
+        if not self.use_history_api:
+            print("历史API功能已禁用")
+            return None
+
+        # 检查缓存有效性
+        if self._is_history_cache_valid():
+            cached_data = self._get_cached_history_data()
+            if cached_data:
+                print(f"使用缓存的历史数据: {len(cached_data)} 个数据点")
+                return cached_data
+
+        # 调用历史API
+        print("缓存无效或过期，调用历史API...")
+        historical_data = self._call_history_api()
+        if not historical_data:
+            print("历史API调用失败")
+            return None
+
+        # 过滤当天数据
+        today_data = self._filter_today_data(historical_data)
+        if today_data:
+            self._update_history_cache(today_data)
+        else:
+            print("过滤后当天数据为空")
+
+        return today_data
+
     def get_time_share_data(self) -> List[Tuple[int, float]]:
-        """获取分时数据（用于图表绘制）"""
-        # 返回历史数据，按时间戳升序排列
+        """获取分时数据（优先使用历史API数据）"""
+        # 尝试获取历史API数据
+        historical_data = self.fetch_historical_data()
+        if historical_data:
+            print(f"使用历史API数据: {len(historical_data)} 个数据点")
+            return sorted(historical_data, key=lambda x: x[0])
+
+        # 降级：使用本地历史数据
+        print("历史API数据不可用，使用本地历史数据")
+        if self.price_history:
+            # 在图表区域显示提示信息（通过widget.py处理）
+            pass
         return sorted(self.price_history, key=lambda x: x[0])
 
     def get_last_known_price(self) -> Optional[float]:

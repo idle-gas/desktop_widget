@@ -278,6 +278,17 @@ class GoldPriceWidget(QWidget):
             painter.drawText(chart_rect, Qt.AlignmentFlag.AlignCenter, "等待历史数据...")
             return
 
+        # 检查是否是降级模式（使用本地历史数据）
+        # 本地历史数据最多120个点，历史API通常返回更多数据
+        if len(history_data) <= 120:
+            # 在图表右上角显示提示
+            painter.setFont(QFont("Arial", 7))
+            painter.setPen(QColor(255, 165, 0))  # 橙色提示
+            painter.drawText(chart_rect.right() - 100, chart_rect.top() + 12,
+                            "使用本地缓存数据")
+            # 恢复默认字体
+            painter.setFont(QFont("Arial", 8))
+
         # 提取价格和时间数据
         prices = [item[1] for item in history_data]
         if not prices:

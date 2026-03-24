@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 黄金价格监控桌面小部件
 
 一个Windows桌面小部件，实时显示黄金价格和分时走势图，支持价格阈值提醒功能。
@@ -198,5 +197,3 @@ pyinstaller --onefile --windowed --name GoldPriceWidget src/main.py
 **注意**: 本程序获取的价格数据仅供参考，实际交易请以官方数据为准。
 =======
 # desktop_widget
-黄金价格监控桌面小部件
->>>>>>> b37e2afaa6f438579bd86494fcc999116b800df9
