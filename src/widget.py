@@ -318,8 +318,8 @@ class GoldPriceWidget(QWidget):
             painter.drawText(time_rect, Qt.AlignmentFlag.AlignRight, f"更新: {update_time}")
 
     def draw_time_chart(self, painter: QPainter):
-        """绘制分时走势图区域（底部90像素）"""
-        # 图表区域：距顶部94像素（24工具栏+70价格区），高度100像素
+        """绘制分时走势图区域（底部 90 像素）"""
+        # 图表区域：距顶部 94 像素（24 工具栏 +70 价格区），高度 100 像素
         chart_rect = QRect(10, 94, 280, 100)
 
         # 绘制图表背景
@@ -334,7 +334,7 @@ class GoldPriceWidget(QWidget):
             return
 
         # 检查是否是降级模式（使用本地历史数据）
-        # 本地历史数据最多120个点，历史API通常返回更多数据
+        # 本地历史数据最多 120 个点，历史 API 通常返回更多数据
         if len(history_data) <= 120:
             # 在图表右上角显示提示
             painter.setFont(QFont("Arial", 7))
@@ -346,6 +346,7 @@ class GoldPriceWidget(QWidget):
 
         # 提取价格和时间数据
         prices = [item[1] for item in history_data]
+        timestamps = [item[0] for item in history_data]
         if not prices:
             return
 
@@ -388,6 +389,64 @@ class GoldPriceWidget(QWidget):
         # 最低价标签
         low_text = f"{min_price:.1f}"
         painter.drawText(chart_rect.left(), chart_rect.bottom() - 5, low_text)
+
+        # 绘制整点时间标记
+        self._draw_hour_markers(painter, chart_rect, timestamps, min_price, max_price, price_range)
+
+    def _draw_hour_markers(self, painter: QPainter, chart_rect: QRect, 
+                          timestamps: list, min_price: float, max_price: float, 
+                          price_range: float):
+        """绘制整点时间标记"""
+        if not timestamps:
+            return
+
+        # 设置整点标记的样式
+        hour_pen = QPen(QColor(100, 100, 100, 150), 1, Qt.PenStyle.DashLine)
+        hour_text_pen = QPen(QColor(150, 150, 150), 1)
+        painter.setFont(QFont("Arial", 7))
+
+        # 获取第一个和最后一个时间点
+        first_timestamp = timestamps[0]
+        last_timestamp = timestamps[-1]
+
+        # 转换为 datetime 对象
+        first_dt = datetime.fromtimestamp(first_timestamp / 1000)
+        last_dt = datetime.fromtimestamp(last_timestamp / 1000)
+
+        # 找到第一个整点（向上取整）
+        if first_dt.minute == 0 and first_dt.second == 0:
+            current_hour = first_dt
+        else:
+            from datetime import timedelta
+            current_hour = first_dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+        # 遍历所有整点
+        while current_hour <= last_dt:
+            # 将整点时间转换为时间戳（毫秒）
+            hour_timestamp = int(current_hour.timestamp() * 1000)
+
+            # 计算该整点在图表中的 X 位置
+            if last_timestamp == first_timestamp:
+                x = chart_rect.left()
+            else:
+                time_ratio = (hour_timestamp - first_timestamp) / (last_timestamp - first_timestamp)
+                x = chart_rect.left() + time_ratio * chart_rect.width()
+
+            # 绘制垂直虚线
+            painter.setPen(hour_pen)
+            painter.drawLine(int(x), chart_rect.top(), int(x), chart_rect.bottom())
+
+            # 绘制整点时间标签
+            painter.setPen(hour_text_pen)
+            hour_label = current_hour.strftime("%H")
+            
+            # 在图表底部绘制时间标签
+            label_rect = QRect(int(x) - 20, chart_rect.bottom() + 2, 40, 12)
+            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, hour_label)
+
+            # 移动到下一个整点
+            from datetime import timedelta
+            current_hour += timedelta(hours=1)
 
     def draw_error_message(self, painter: QPainter):
         """绘制错误信息"""
